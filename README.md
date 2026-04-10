@@ -30,7 +30,7 @@ To function correctly, the tool adheres to the networking requirements outlined 
 - [Peer Sampling Specs](https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/peer-sampling.md)
 
 ## Requirements
-- `Go >=1.24`
+- `Go >=1.25`
 - (Recommended) [Just](https://github.com/casey/just)
 - A Beacon API with debugging events enabled (the tool downloads the beacon-state from the node)
   - Example: use EthPandaOps’ Beacon RPC endpoint listed in the [devnet details](https://fusaka-devnet-3.ethpandaops.io/)
