@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethpandaops/eth-das-guardian/api"
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/pkg/errors"
-	"github.com/probe-lab/eth-das-guardian/api"
 	"github.com/wealdtech/go-bytesutil"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"

@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
+	dasguardian "github.com/ethpandaops/eth-das-guardian"
 	"github.com/pkg/errors"
-	dasguardian "github.com/probe-lab/eth-das-guardian"
 	log "github.com/sirupsen/logrus"
 	cli "github.com/urfave/cli/v3"
 )

@@ -6,7 +6,7 @@ import (
 	mrand "math/rand"
 
 	"github.com/attestantio/go-eth2-client/spec"
-	"github.com/probe-lab/eth-das-guardian/api"
+	"github.com/ethpandaops/eth-das-guardian/api"
 	"github.com/sirupsen/logrus"
 )
 

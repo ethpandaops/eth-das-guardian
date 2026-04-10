@@ -1,4 +1,4 @@
-module github.com/probe-lab/eth-das-guardian
+module github.com/ethpandaops/eth-das-guardian
 
 go 1.25.0
 

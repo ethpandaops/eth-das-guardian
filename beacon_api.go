@@ -11,8 +11,8 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ethpandaops/eth-das-guardian/api"
 	"github.com/pkg/errors"
-	"github.com/probe-lab/eth-das-guardian/api"
 	log "github.com/sirupsen/logrus"
 )
 
