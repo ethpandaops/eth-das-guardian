@@ -38,6 +38,17 @@ const (
 	Libp2pConnGraceTime = 30 * time.Second
 )
 
+// isPeerDASForkName reports whether the given beacon-state version string
+// corresponds to a fork where PeerDAS (data column custody) is active.
+func isPeerDASForkName(version string) bool {
+	switch version {
+	case "fulu", "gloas":
+		return true
+	default:
+		return false
+	}
+}
+
 const (
 	// libp2p related metadata
 	UserAgent       = "user_agent"
@@ -422,8 +433,8 @@ func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node, slotSelector 
 	switch g.beaconApi.GetStateVersion() {
 	case "electra":
 		return g.scanElectra(ctx, peerInfo, slotSelector)
-	case "fulu":
-		return g.scanFulu(ctx, peerInfo, slotSelector)
+	case "fulu", "gloas":
+		return g.scanPeerDAS(ctx, peerInfo, slotSelector)
 	default:
 		return nil, fmt.Errorf("not recognized fork for the state %s", g.beaconApi.GetStateVersion())
 	}
@@ -464,7 +475,11 @@ func (g *DasGuardian) scanElectra(ctx context.Context, peerInfo *PeerInfo, slotS
 	return scanResult, nil
 }
 
-func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSelector SlotSelector) (*DasGuardianScanResult, error) {
+// scanPeerDAS runs the DAS column custody check for any PeerDAS-era fork
+// (Fulu, Gloas, …). The block/column RPC protocols and evaluation logic
+// are identical across these forks — only block body parsing differs,
+// which is handled by the versioned helpers on spec.VersionedSignedBeaconBlock.
+func (g *DasGuardian) scanPeerDAS(ctx context.Context, peerInfo *PeerInfo, slotSelector SlotSelector) (*DasGuardianScanResult, error) {
 	scanResult := &DasGuardianScanResult{
 		Libp2pInfo: peerInfo.Libp2pInfo,
 	}
@@ -590,7 +605,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context, slotSelector SlotSele
 
 	// compare the results from the API with the ones from the ENR
 
-	if g.beaconApi.GetStateVersion() == "fulu" {
+	if isPeerDASForkName(g.beaconApi.GetStateVersion()) {
 		// cgc
 		enrCustody, err := GetCustodyFromEnr(enr)
 		if err != nil {

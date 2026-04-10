@@ -8,6 +8,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/electra"
+	"github.com/attestantio/go-eth2-client/spec/gloas"
 	"github.com/pkg/errors"
 )
 
@@ -16,27 +17,14 @@ var (
 	ErrBlockNotFound = fmt.Errorf("block not found")
 )
 
-type BeaconBlock struct {
-	Version             string                     `json:"version"`
-	ExecutionOptimistic bool                       `json:"execution_optimistic"`
-	Finalized           bool                       `json:"finalized"`
-	Data                *electra.SignedBeaconBlock `json:"data"`
-}
-
-func (b *BeaconBlock) IsMissed() bool {
-	return b.Data == nil
-}
-
-type FuluBeaconBlock struct {
-	Slot          string                  `json:"slot"`
-	ProposerIndex string                  `json:"proposer_index"`
-	ParentRoot    string                  `json:"parent_root"`
-	StateRoot     string                  `json:"state_root"`
-	Body          electra.BeaconBlockBody `json:"body"`
+type beaconBlockEnvelope struct {
+	Version             string          `json:"version"`
+	ExecutionOptimistic bool            `json:"execution_optimistic"`
+	Finalized           bool            `json:"finalized"`
+	Data                json.RawMessage `json:"data"`
 }
 
 func (c *Client) GetBeaconBlock(ctx context.Context, slot any) (*spec.VersionedSignedBeaconBlock, error) {
-	// we only accept integers and strings to describe the slots
 	blockQuery := BlockBase
 	switch s := slot.(type) {
 	case int, int32, int64, uint, uint32, uint64:
@@ -47,10 +35,6 @@ func (c *Client) GetBeaconBlock(ctx context.Context, slot any) (*spec.VersionedS
 		return nil, fmt.Errorf("unrecognized slot %s", slot)
 	}
 
-	versionedBlock := &spec.VersionedSignedBeaconBlock{
-		Version: spec.DataVersionElectra,
-	}
-	beaconBlock := &BeaconBlock{}
 	resp, err := c.get(ctx, c.cfg.QueryTimeout, blockQuery, "")
 	if err != nil {
 		if strings.Contains(err.Error(), "404 Not Found") {
@@ -58,11 +42,38 @@ func (c *Client) GetBeaconBlock(ctx context.Context, slot any) (*spec.VersionedS
 		}
 		return nil, errors.Wrap(err, "requesting beacon-block")
 	}
-	err = json.Unmarshal(resp, &beaconBlock)
-	if err != nil {
-		return nil, errors.Wrap(err, "unmarshaling beacon-block from http request")
+
+	envelope := &beaconBlockEnvelope{}
+	if err := json.Unmarshal(resp, envelope); err != nil {
+		return nil, errors.Wrap(err, "unmarshaling beacon-block envelope")
 	}
 
-	versionedBlock.Electra = beaconBlock.Data
+	versionedBlock := &spec.VersionedSignedBeaconBlock{}
+	switch strings.ToLower(envelope.Version) {
+	case "electra":
+		block := &electra.SignedBeaconBlock{}
+		if err := json.Unmarshal(envelope.Data, block); err != nil {
+			return nil, errors.Wrap(err, "unmarshaling electra signed beacon block")
+		}
+		versionedBlock.Version = spec.DataVersionElectra
+		versionedBlock.Electra = block
+	case "fulu":
+		block := &electra.SignedBeaconBlock{}
+		if err := json.Unmarshal(envelope.Data, block); err != nil {
+			return nil, errors.Wrap(err, "unmarshaling fulu signed beacon block")
+		}
+		versionedBlock.Version = spec.DataVersionFulu
+		versionedBlock.Fulu = block
+	case "gloas":
+		block := &gloas.SignedBeaconBlock{}
+		if err := json.Unmarshal(envelope.Data, block); err != nil {
+			return nil, errors.Wrap(err, "unmarshaling gloas signed beacon block")
+		}
+		versionedBlock.Version = spec.DataVersionGloas
+		versionedBlock.Gloas = block
+	default:
+		return nil, fmt.Errorf("unsupported beacon block version %q", envelope.Version)
+	}
+
 	return versionedBlock, nil
 }

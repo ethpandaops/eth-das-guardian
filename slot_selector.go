@@ -252,40 +252,43 @@ func GenerateRandomSlots(ctx context.Context, beaconApi BeaconAPI, n int32, valF
 	return sampSlots, nil
 }
 
-func electraNonMissedBlockValidation(b *spec.VersionedSignedBeaconBlock) bool {
-	// accept only slots that are not missed
-	if b == nil || b.Electra == nil {
+// nonMissedBlockValidation accepts any non-nil block at a non-zero slot,
+// regardless of fork. It relies on VersionedSignedBeaconBlock.Slot() which
+// already handles electra/fulu/gloas transparently.
+func nonMissedBlockValidation(b *spec.VersionedSignedBeaconBlock) bool {
+	if b == nil {
 		return false
 	}
-	return b.Electra.Message.Slot > 0
+	slot, err := b.Slot()
+	return err == nil && slot > 0
 }
 
-func electraNonBlocksWithBlobsValidation(b *spec.VersionedSignedBeaconBlock) bool {
-	// accept only slots that are not missed
-	if b == nil || b.Electra == nil {
+// nonBlocksWithBlobsValidation accepts non-missed blocks that carry at least
+// one blob KZG commitment. In gloas, the commitments live under
+// SignedExecutionPayloadBid.Message; the versioned helper abstracts that.
+func nonBlocksWithBlobsValidation(b *spec.VersionedSignedBeaconBlock) bool {
+	if !nonMissedBlockValidation(b) {
 		return false
 	}
-	if b.Electra.Message.Slot == 0 {
-		return false
-	}
-	return len(b.Electra.Message.Body.BlobKZGCommitments) > 0
+	kzgs, err := b.BlobKZGCommitments()
+	return err == nil && len(kzgs) > 0
 }
 
 func WithRandomNonMissedSlots(n int32) SlotSelector {
 	return func(ctx context.Context, apiCli BeaconAPI, statusV2 *StatusV2) ([]SampleableSlot, error) {
-		return GenerateRandomSlots(ctx, apiCli, n, electraNonMissedBlockValidation, statusV2)
+		return GenerateRandomSlots(ctx, apiCli, n, nonMissedBlockValidation, statusV2)
 	}
 }
 
 func WithRandomWithBlobsSlots(n int32) SlotSelector {
 	return func(ctx context.Context, g BeaconAPI, statusV2 *StatusV2) ([]SampleableSlot, error) {
-		return GenerateRandomSlots(ctx, g, n, electraNonBlocksWithBlobsValidation, statusV2)
+		return GenerateRandomSlots(ctx, g, n, nonBlocksWithBlobsValidation, statusV2)
 	}
 }
 
 func WithRandomAvailableSlots(n int32) SlotSelector {
 	return func(ctx context.Context, g BeaconAPI, statusV2 *StatusV2) ([]SampleableSlot, error) {
-		return GenerateRandomSlots(ctx, g, n, electraNonBlocksWithBlobsValidation, statusV2)
+		return GenerateRandomSlots(ctx, g, n, nonBlocksWithBlobsValidation, statusV2)
 	}
 }
 

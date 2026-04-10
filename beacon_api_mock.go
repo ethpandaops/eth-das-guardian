@@ -53,6 +53,11 @@ func (m *mockBeaconAPI) GetFuluForkEpoch() uint64 {
 	return args.Get(0).(uint64)
 }
 
+func (m *mockBeaconAPI) GetGloasForkEpoch() uint64 {
+	args := m.Called()
+	return args.Get(0).(uint64)
+}
+
 func (m *mockBeaconAPI) GetNodeIdentity(ctx context.Context) (*api.NodeIdentity, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
