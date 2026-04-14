@@ -65,12 +65,13 @@ jobs:
         (cd das-guardian_darwin_amd64  && tar -czf "../das-guardian_${version}_darwin_amd64.tar.gz" .)
         (cd das-guardian_darwin_arm64  && tar -czf "../das-guardian_${version}_darwin_arm64.tar.gz" .)
 
-    # create draft release and upload all archives in one step
-    - name: Create draft GitHub release
+    # create a published (non-draft) release and upload all archives in one step
+    - name: Create GitHub release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
       with:
-        draft: true
+        draft: false
         prerelease: false
+        make_latest: "true"
         name: "v${{ inputs.version }}"
         tag_name: "v${{ inputs.version }}"
         files: |
