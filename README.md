@@ -114,8 +114,10 @@ INFO[0016] node custody sampling done...                 duration=2.35818963s
 Note: This tool is a demonstration prototype for debugging CL nodes on devnets. The codebase is experimental — please be gentle regarding its current style and implementation.
 
 ## Maintainers
-[@cortze](https://github.com/cortze) from [@probe-lab](https://github.com/probe-lab)
 [@EthPandaOps](https://github.com/ethpandaops) team
+
+## Credits
+Originally created by [@cortze](https://github.com/cortze) at [@probe-lab](https://github.com/probe-lab).
 
 ## Contributing
 Due to the debugging and research nature of the project, feedback and feature suggestions are very welcome. Feel free to open an issue or submit a pull request.
