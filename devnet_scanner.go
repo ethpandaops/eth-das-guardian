@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethpandaops/eth-das-guardian/dora"
 	"github.com/pkg/errors"
-	"github.com/probe-lab/eth-das-guardian/dora"
 	"github.com/sirupsen/logrus"
 )
 

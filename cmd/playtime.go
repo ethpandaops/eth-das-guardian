@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	dasguardian "github.com/probe-lab/eth-das-guardian"
+	dasguardian "github.com/ethpandaops/eth-das-guardian"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v3"
 )

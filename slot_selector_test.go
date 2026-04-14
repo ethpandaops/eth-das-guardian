@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/deneb"
-	"github.com/attestantio/go-eth2-client/spec/electra"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ethpandaops/go-eth2-client/spec"
+	"github.com/ethpandaops/go-eth2-client/spec/deneb"
+	"github.com/ethpandaops/go-eth2-client/spec/electra"
+	"github.com/ethpandaops/go-eth2-client/spec/phase0"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -342,6 +342,7 @@ func TestWithRandomSlots_Integration(t *testing.T) {
 	api.On("GetLatestBlockHeader").Return(&phase0.BeaconBlockHeader{Slot: 200})
 	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
 		Return(&spec.VersionedSignedBeaconBlock{
+			Version: spec.DataVersionElectra,
 			Electra: &electra.SignedBeaconBlock{
 				Message: &electra.BeaconBlock{
 					Slot: phase0.Slot(1),
@@ -391,6 +392,7 @@ func TestWithRandomSlots_Integration(t *testing.T) {
 			api.On("GetLatestBlockHeader").Return(&phase0.BeaconBlockHeader{Slot: 200})
 			api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
 				Return(&spec.VersionedSignedBeaconBlock{
+					Version: spec.DataVersionElectra,
 					Electra: &electra.SignedBeaconBlock{
 						Message: &electra.BeaconBlock{
 							Slot: phase0.Slot(1),
@@ -420,6 +422,7 @@ func TestWithRandomAvailableSlots(t *testing.T) {
 
 	// Create a mock block with Electra version and blob commitments
 	electraBlock := &spec.VersionedSignedBeaconBlock{
+		Version: spec.DataVersionElectra,
 		Electra: &electra.SignedBeaconBlock{
 			Message: &electra.BeaconBlock{
 				Slot: phase0.Slot(1),
@@ -552,6 +555,7 @@ func TestSlotRangeRequestParams_SlotSelector_RandomAvailableSlots(t *testing.T) 
 	api.On("GetLatestBlockHeader").Return(&phase0.BeaconBlockHeader{Slot: 200})
 	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
 		Return(&spec.VersionedSignedBeaconBlock{
+			Version: spec.DataVersionElectra,
 			Electra: &electra.SignedBeaconBlock{
 				Message: &electra.BeaconBlock{
 					Slot: phase0.Slot(1),

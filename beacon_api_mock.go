@@ -3,9 +3,9 @@ package dasguardian
 import (
 	"context"
 
-	"github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/probe-lab/eth-das-guardian/api"
+	"github.com/ethpandaops/eth-das-guardian/api"
+	"github.com/ethpandaops/go-eth2-client/spec"
+	"github.com/ethpandaops/go-eth2-client/spec/phase0"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -49,6 +49,11 @@ func (m *mockBeaconAPI) GetLatestBlockHeader() *phase0.BeaconBlockHeader {
 }
 
 func (m *mockBeaconAPI) GetFuluForkEpoch() uint64 {
+	args := m.Called()
+	return args.Get(0).(uint64)
+}
+
+func (m *mockBeaconAPI) GetGloasForkEpoch() uint64 {
 	args := m.Called()
 	return args.Get(0).(uint64)
 }

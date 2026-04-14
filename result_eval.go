@@ -3,7 +3,7 @@ package dasguardian
 import (
 	"fmt"
 
-	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/ethpandaops/go-eth2-client/spec"
 	log "github.com/sirupsen/logrus"
 )
 

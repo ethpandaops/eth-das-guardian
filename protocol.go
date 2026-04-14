@@ -1,6 +1,6 @@
 package dasguardian
 
-import "github.com/attestantio/go-eth2-client/spec/phase0"
+import "github.com/ethpandaops/go-eth2-client/spec/phase0"
 
 // Ethereum 2.0 P2P protocol IDs
 const (
