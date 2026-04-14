@@ -25,13 +25,13 @@ jobs:
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-  
+
   create_release:
     name: Create Release
     needs: [build_binaries]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 100
         ref: ${{ github.sha }}
@@ -52,17 +52,33 @@ jobs:
 
     # download build artifacts
     - name: "Download build artifacts"
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
 
-    # create draft release
-    - name: Create latest release
-      uses: actions/create-release@v1
-      id: create_release
+    # generate release archives from the per-platform artifact directories
+    - name: "Package release archives"
+      run: |
+        set -euo pipefail
+        version="${{ inputs.version }}"
+        (cd das-guardian_windows_amd64 && zip -r -q "../das-guardian_${version}_windows_amd64.zip" .)
+        (cd das-guardian_linux_amd64   && tar -czf "../das-guardian_${version}_linux_amd64.tar.gz" .)
+        (cd das-guardian_linux_arm64   && tar -czf "../das-guardian_${version}_linux_arm64.tar.gz" .)
+        (cd das-guardian_darwin_amd64  && tar -czf "../das-guardian_${version}_darwin_amd64.tar.gz" .)
+        (cd das-guardian_darwin_arm64  && tar -czf "../das-guardian_${version}_darwin_arm64.tar.gz" .)
+
+    # create draft release and upload all archives in one step
+    - name: Create draft GitHub release
+      uses: softprops/action-gh-release@v3
       with:
         draft: true
         prerelease: false
-        release_name: "v${{ inputs.version }}"
+        name: "v${{ inputs.version }}"
         tag_name: "v${{ inputs.version }}"
+        files: |
+          das-guardian_${{ inputs.version }}_windows_amd64.zip
+          das-guardian_${{ inputs.version }}_linux_amd64.tar.gz
+          das-guardian_${{ inputs.version }}_linux_arm64.tar.gz
+          das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz
+          das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz
         body: |
           ### Major Changes
           * ...
@@ -83,76 +99,3 @@ jobs:
           | [das-guardian_${{ inputs.version }}_linux_arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/das-guardian_${{ inputs.version }}_linux_arm64.tar.gz) | das-guardian executables for linux/arm64 |
           | [das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz](https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz) | das-guardian executable for macos/amd64 |
           | [das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz) | das-guardian executable for macos/arm64 |
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-
-    # generate & upload release artifacts
-    - name: "Generate release package: das-guardian_${{ inputs.version }}_windows_amd64.zip"
-      run: |
-        cd das-guardian_windows_amd64
-        zip -r -q ../das-guardian_${{ inputs.version }}_windows_amd64.zip .
-    - name: "Upload release artifact: das-guardian_${{ inputs.version }}_windows_amd64.zip"
-      uses: actions/upload-release-asset@v1.0.2
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./das-guardian_${{ inputs.version }}_windows_amd64.zip
-        asset_name: das-guardian_${{ inputs.version }}_windows_amd64.zip
-        asset_content_type: application/octet-stream
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-    
-    - name: "Generate release package: das-guardian_${{ inputs.version }}_linux_amd64.tar.gz"
-      run: |
-        cd das-guardian_linux_amd64
-        tar -czf ../das-guardian_${{ inputs.version }}_linux_amd64.tar.gz .
-    - name: "Upload release artifact: das-guardian_${{ inputs.version }}_linux_amd64.tar.gz"
-      uses: actions/upload-release-asset@v1.0.2
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./das-guardian_${{ inputs.version }}_linux_amd64.tar.gz
-        asset_name: das-guardian_${{ inputs.version }}_linux_amd64.tar.gz
-        asset_content_type: application/octet-stream
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-    
-    - name: "Generate release package: das-guardian_${{ inputs.version }}_linux_arm64.tar.gz"
-      run: |
-        cd das-guardian_linux_arm64
-        tar -czf ../das-guardian_${{ inputs.version }}_linux_arm64.tar.gz .
-    - name: "Upload release artifact: das-guardian_${{ inputs.version }}_linux_arm64.tar.gz"
-      uses: actions/upload-release-asset@v1.0.2
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./das-guardian_${{ inputs.version }}_linux_arm64.tar.gz
-        asset_name: das-guardian_${{ inputs.version }}_linux_arm64.tar.gz
-        asset_content_type: application/octet-stream
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-    
-    - name: "Generate release package: das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz"
-      run: |
-        cd das-guardian_darwin_amd64
-        tar -czf ../das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz .
-    - name: "Upload release artifact: das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz"
-      uses: actions/upload-release-asset@v1.0.2
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz
-        asset_name: das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz
-        asset_content_type: application/octet-stream
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-
-    - name: "Generate release package: das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz"
-      run: |
-        cd das-guardian_darwin_arm64
-        tar -czf ../das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz .
-    - name: "Upload release artifact: das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz"
-      uses: actions/upload-release-asset@v1.0.2
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz
-        asset_name: das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz
-        asset_content_type: application/octet-stream
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
