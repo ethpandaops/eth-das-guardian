@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/attestantio/go-eth2-client/spec/deneb"
+	"github.com/ethpandaops/go-eth2-client/spec/deneb"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 

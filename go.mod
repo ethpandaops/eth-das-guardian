@@ -2,12 +2,10 @@ module github.com/ethpandaops/eth-das-guardian
 
 go 1.25.0
 
-replace github.com/attestantio/go-eth2-client => github.com/pk910/go-eth2-client v0.0.0-20260401105128-4544cf21b737
-
 require (
-	github.com/attestantio/go-eth2-client v0.26.1-0.20250812165705-a4bcce29e341
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/ethereum/go-ethereum v1.15.11
+	github.com/ethpandaops/go-eth2-client v0.0.1
 	github.com/golang/snappy v0.0.5-0.20231225225746-43d5d4cd4e0e
 	github.com/holiman/uint256 v1.3.2
 	github.com/libp2p/go-libp2p v0.41.1

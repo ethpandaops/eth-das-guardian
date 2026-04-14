@@ -5,8 +5,8 @@ import (
 	"fmt"
 	mrand "math/rand"
 
-	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/ethpandaops/eth-das-guardian/api"
+	"github.com/ethpandaops/go-eth2-client/spec"
 	"github.com/sirupsen/logrus"
 )
 
