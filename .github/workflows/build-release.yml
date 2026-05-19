@@ -62,7 +62,6 @@ jobs:
         (cd das-guardian_windows_amd64 && zip -r -q "../das-guardian_${version}_windows_amd64.zip" .)
         (cd das-guardian_linux_amd64   && tar -czf "../das-guardian_${version}_linux_amd64.tar.gz" .)
         (cd das-guardian_linux_arm64   && tar -czf "../das-guardian_${version}_linux_arm64.tar.gz" .)
-        (cd das-guardian_darwin_amd64  && tar -czf "../das-guardian_${version}_darwin_amd64.tar.gz" .)
         (cd das-guardian_darwin_arm64  && tar -czf "../das-guardian_${version}_darwin_arm64.tar.gz" .)
 
     # create a published (non-draft) release and upload all archives in one step
@@ -78,7 +77,6 @@ jobs:
           das-guardian_${{ inputs.version }}_windows_amd64.zip
           das-guardian_${{ inputs.version }}_linux_amd64.tar.gz
           das-guardian_${{ inputs.version }}_linux_arm64.tar.gz
-          das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz
           das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz
         body: |
           ### Major Changes
@@ -98,5 +96,4 @@ jobs:
           | [das-guardian_${{ inputs.version }}_windows_amd64.zip](https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/das-guardian_${{ inputs.version }}_windows_amd64.zip) | das-guardian executables for windows/amd64 |
           | [das-guardian_${{ inputs.version }}_linux_amd64.tar.gz](https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/das-guardian_${{ inputs.version }}_linux_amd64.tar.gz) | das-guardian executables for linux/amd64 |
           | [das-guardian_${{ inputs.version }}_linux_arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/das-guardian_${{ inputs.version }}_linux_arm64.tar.gz) | das-guardian executables for linux/arm64 |
-          | [das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz](https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz) | das-guardian executable for macos/amd64 |
           | [das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz) | das-guardian executable for macos/arm64 |
