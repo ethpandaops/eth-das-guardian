@@ -132,18 +132,29 @@ func evaluateDownloadedColumns(
 		downloadedCellsCount := 0
 		validCol := false
 		validKzgCount := 0
-		if c < len(downloadedCols) {
-			for _, cellKzg := range downloadedCols[c].KzgCommitments {
-				downloadedCellsCount++
-			kzgCheckLoop:
-				for _, kzgCom := range kzgCommitments {
-					if matchingBytes(cellKzg[:], kzgCom[:]) {
-						validKzgCount++
-						break kzgCheckLoop
+		if c < len(downloadedCols) && downloadedCols[c] != nil {
+			if len(downloadedCols[c].KzgCommitments) > 0 {
+				// Pre-Gloas sidecars carry per-cell KZG commitments; verify
+				// each matches one of the block's commitments.
+				for _, cellKzg := range downloadedCols[c].KzgCommitments {
+					downloadedCellsCount++
+				kzgCheckLoop:
+					for _, kzgCom := range kzgCommitments {
+						if matchingBytes(cellKzg[:], kzgCom[:]) {
+							validKzgCount++
+							break kzgCheckLoop
+						}
 					}
 				}
+			} else {
+				// Gloas sidecars dropped per-cell commitments — the block's
+				// commitments are authoritative. Treat the column as valid
+				// when the cell count matches the block's blob count.
+				downloadedCellsCount = len(downloadedCols[c].Column)
+				if downloadedCellsCount == blobCount {
+					validKzgCount = blobCount
+				}
 			}
-			// if we have as many valid KZG as blobs in the block -> is a valid column
 			validCol = (blobCount == validKzgCount)
 		}
 		downloadedCells[c] = fmt.Sprintf("%d/%d", downloadedCellsCount, blobCount)
@@ -153,7 +164,7 @@ func evaluateDownloadedColumns(
 			validSlot = false
 		}
 	}
-	if len(downloadedCols) > 0 {
+	if len(downloadedCols) > 0 && downloadedCols[0] != nil && downloadedCols[0].SignedBlockHeader != nil && downloadedCols[0].SignedBlockHeader.Message != nil {
 		if uint64(slot) != uint64(downloadedCols[0].SignedBlockHeader.Message.Slot) {
 			log.Warnf(
 				"slot (%d) and col-slot (%d) don't match",

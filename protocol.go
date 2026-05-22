@@ -95,3 +95,15 @@ type DataColumnSidecarV1 struct {
 	SignedBlockHeader            *phase0.SignedBeaconBlockHeader
 	KzgCommitmentsInclusionProof [][]byte `ssz-size:"4,32"`
 }
+
+// DataColumnSidecarGloasV1 is the Gloas (EIP-7732) wire format for a column
+// sidecar. Removes `kzg_commitments`, `signed_block_header` and
+// `kzg_commitments_inclusion_proof`; adds `slot` and `beacon_block_root` at
+// the top level. Fixed prefix is 56 bytes (8 + 4 + 4 + 8 + 32).
+type DataColumnSidecarGloasV1 struct {
+	Index           uint64
+	Column          [][]byte `ssz-max:"4096" ssz-size:"?,2048"`
+	KzgProofs       [][]byte `ssz-max:"4096" ssz-size:"?,48"`
+	Slot            uint64
+	BeaconBlockRoot [32]byte `ssz-size:"32"`
+}

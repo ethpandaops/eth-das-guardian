@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/ethpandaops/eth-das-guardian/api"
+	"github.com/ethpandaops/go-eth2-client/spec"
+	"github.com/ethpandaops/go-eth2-client/spec/phase0"
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/pkg/errors"
@@ -1034,6 +1036,38 @@ func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 	return metadataV2, metadataV3
 }
 
+// normalizeGloasSidecars adapts Gloas-format column sidecars into the
+// Fulu-shaped DataColumnSidecarV1 that the rest of the pipeline (eval, logs)
+// already understands. The Gloas sidecar no longer carries per-cell KZG
+// commitments or a SignedBlockHeader, so we leave KzgCommitments nil (eval
+// falls back to the block's commitments) and synthesise a minimal header
+// carrying the sidecar's Slot so existing slot-mismatch checks still work.
+func normalizeGloasSidecars(in []*DataColumnSidecarGloasV1) []*DataColumnSidecarV1 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*DataColumnSidecarV1, 0, len(in))
+	for _, gl := range in {
+		if gl == nil {
+			continue
+		}
+		out = append(out, &DataColumnSidecarV1{
+			Index:     gl.Index,
+			Column:    gl.Column,
+			KzgProofs: gl.KzgProofs,
+			SignedBlockHeader: &phase0.SignedBeaconBlockHeader{
+				Message: &phase0.BeaconBlockHeader{
+					Slot:       phase0.Slot(gl.Slot),
+					ParentRoot: phase0.Root{},
+					StateRoot:  phase0.Root{},
+					BodyRoot:   phase0.Root(gl.BeaconBlockRoot),
+				},
+			},
+		})
+	}
+	return out
+}
+
 func (g *DasGuardian) getDataColumnForSlotAndSubnet(
 	ctx context.Context,
 	pid peer.ID,
@@ -1052,9 +1086,21 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(
 	startT := time.Now()
 	// make the request for each slots
 	for s, completeSlot := range sampSlot {
-		// make the request per each column
+		isGloas := completeSlot.BeaconBlock != nil && completeSlot.BeaconBlock.Version == spec.DataVersionGloas
+
 		// Range Request
-		rangeDuration, rangeCols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, completeSlot.Slot, columnIdxs)
+		var (
+			rangeDuration time.Duration
+			rangeCols     []*DataColumnSidecarV1
+			err           error
+		)
+		if isGloas {
+			var gloasCols []*DataColumnSidecarGloasV1
+			rangeDuration, gloasCols, err = g.rpcServ.DataColumnByRangeV1Gloas(ctx, pid, completeSlot.Slot, columnIdxs)
+			rangeCols = normalizeGloasSidecars(gloasCols)
+		} else {
+			rangeDuration, rangeCols, err = g.rpcServ.DataColumnByRangeV1(ctx, pid, completeSlot.Slot, columnIdxs)
+		}
 		if err != nil {
 			g.cfg.Logger.Error(err)
 			return rangeDataColumns, rootDataColumns, err
@@ -1067,13 +1113,23 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(
 			g.cfg.Logger.Error(err)
 			return rangeDataColumns, rootDataColumns, err
 		}
-		rootDuration, rootCols, err := g.rpcServ.DataColumnByRootV1(
-			ctx,
-			pid,
-			blockRoot,
-			columnIdxs,
-			completeSlot.Slot,
+		var (
+			rootDuration time.Duration
+			rootCols     []*DataColumnSidecarV1
 		)
+		if isGloas {
+			var gloasCols []*DataColumnSidecarGloasV1
+			rootDuration, gloasCols, err = g.rpcServ.DataColumnByRootV1Gloas(ctx, pid, blockRoot, columnIdxs, completeSlot.Slot)
+			rootCols = normalizeGloasSidecars(gloasCols)
+		} else {
+			rootDuration, rootCols, err = g.rpcServ.DataColumnByRootV1(
+				ctx,
+				pid,
+				blockRoot,
+				columnIdxs,
+				completeSlot.Slot,
+			)
+		}
 		if err != nil {
 			g.cfg.Logger.Error(err)
 			return rangeDataColumns, rootDataColumns, err
