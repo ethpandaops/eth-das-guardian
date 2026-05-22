@@ -88,6 +88,13 @@ type DasGuardianConfig struct {
 	BeaconAPIcustomClClient string
 	WaitForFulu             bool
 	InitTimeout             time.Duration
+	// ProposerPreferencesWaitDuration, if > 0, keeps the Gloas
+	// `proposer_preferences` gossip subscription open for this long after the
+	// RPC exchange completes, so the gossip mesh has time to deliver
+	// SignedProposerPreferences messages from the scanned peer. Zero (default)
+	// means no extra wait — the scan returns immediately and the observation
+	// list is whatever happened to arrive during the RPC window.
+	ProposerPreferencesWaitDuration time.Duration
 }
 
 func (c *DasGuardianConfig) NewPrivateKey() (*crypto.Secp256k1PrivateKey, error) {
@@ -554,6 +561,13 @@ func (g *DasGuardian) scanPeerDAS(ctx context.Context, peerInfo *PeerInfo, slotS
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
 
 	if g.proposerPrefs != nil {
+		if wait := g.cfg.ProposerPreferencesWaitDuration; wait > 0 {
+			g.cfg.Logger.WithField("duration", wait).Info("waiting for proposer_preferences gossip...")
+			select {
+			case <-ctx.Done():
+			case <-time.After(wait):
+			}
+		}
 		observed := g.proposerPrefs.observationsFrom(peerInfo.AddrInfo.ID)
 		scanResult.ProposerPreferences = observed
 		prettyLogrusFields(g.cfg.Logger, "proposer-preferences...", visualizeProposerPreferences(observed))
