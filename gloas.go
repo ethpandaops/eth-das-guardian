@@ -101,7 +101,7 @@ func (o *proposerPreferencesObserver) readLoop(ctx context.Context) {
 				"fee_recipient":   fmt.Sprintf("0x%x", signed.Message.FeeRecipient),
 				"gas_limit":       signed.Message.GasLimit,
 				"received_from":   msg.ReceivedFrom.String(),
-			}).Debug("observed SignedProposerPreferences")
+			}).Info("observed SignedProposerPreferences")
 		}
 	}
 }
