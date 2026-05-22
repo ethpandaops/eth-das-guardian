@@ -26,10 +26,22 @@ type ObservedProposerPreference struct {
 // messages it has observed.
 type proposerPreferencesObserver struct {
 	logger log.FieldLogger
+	topic  *pubsub.Topic
 	sub    *pubsub.Subscription
 
 	mu           sync.RWMutex
 	observations []*ObservedProposerPreference
+}
+
+// topicPeers returns the peers our gossipsub instance currently sees as
+// subscribers of the proposer_preferences topic. If the scanned peer isn't in
+// this list during the wait window we will never receive their gossip, even
+// if they're publishing.
+func (o *proposerPreferencesObserver) topicPeers() []peer.ID {
+	if o.topic == nil {
+		return nil
+	}
+	return o.topic.ListPeers()
 }
 
 // joinProposerPreferences joins, subscribes to and starts reading the Gloas
@@ -54,6 +66,7 @@ func joinProposerPreferences(
 
 	obs := &proposerPreferencesObserver{
 		logger:       logger.WithField("topic", topicName),
+		topic:        topic,
 		sub:          sub,
 		observations: make([]*ObservedProposerPreference, 0, 16),
 	}

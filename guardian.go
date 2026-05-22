@@ -561,13 +561,46 @@ func (g *DasGuardian) scanPeerDAS(ctx context.Context, peerInfo *PeerInfo, slotS
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
 
 	if g.proposerPrefs != nil {
+		logTopicMesh := func(stage string) {
+			peers := g.proposerPrefs.topicPeers()
+			inMesh := false
+			for _, p := range peers {
+				if p == peerInfo.AddrInfo.ID {
+					inMesh = true
+					break
+				}
+			}
+			g.cfg.Logger.WithFields(log.Fields{
+				"stage":            stage,
+				"topic_peers":      len(peers),
+				"scanned_in_topic": inMesh,
+			}).Info("proposer_preferences gossip mesh")
+		}
+
+		logTopicMesh("pre-wait")
 		if wait := g.cfg.ProposerPreferencesWaitDuration; wait > 0 {
 			g.cfg.Logger.WithField("duration", wait).Info("waiting for proposer_preferences gossip...")
-			select {
-			case <-ctx.Done():
-			case <-time.After(wait):
+			deadline := time.Now().Add(wait)
+			ticker := time.NewTicker(5 * time.Second)
+		waitLoop:
+			for {
+				remaining := time.Until(deadline)
+				if remaining <= 0 {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					break waitLoop
+				case <-ticker.C:
+					logTopicMesh("waiting")
+				case <-time.After(remaining):
+					break waitLoop
+				}
 			}
+			ticker.Stop()
 		}
+		logTopicMesh("post-wait")
+
 		observed := g.proposerPrefs.observationsFrom(peerInfo.AddrInfo.ID)
 		scanResult.ProposerPreferences = observed
 		prettyLogrusFields(g.cfg.Logger, "proposer-preferences...", visualizeProposerPreferences(observed))
