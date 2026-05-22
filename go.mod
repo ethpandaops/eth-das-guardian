@@ -5,14 +5,14 @@ go 1.25.0
 require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/ethereum/go-ethereum v1.15.11
-	github.com/ethpandaops/go-eth2-client v0.0.1
+	github.com/ethpandaops/go-eth2-client v0.1.2
 	github.com/golang/snappy v0.0.5-0.20231225225746-43d5d4cd4e0e
 	github.com/holiman/uint256 v1.3.2
 	github.com/libp2p/go-libp2p v0.41.1
 	github.com/libp2p/go-libp2p-mplex v0.10.0
 	github.com/libp2p/go-libp2p-pubsub v0.13.1
 	github.com/multiformats/go-multiaddr v0.15.0
-	github.com/pk910/dynamic-ssz v1.3.0
+	github.com/pk910/dynamic-ssz v1.3.2-0.20260505131440-111bcb265c8f
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.11.1
@@ -35,7 +35,7 @@ require (
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
-	github.com/goccy/go-yaml v1.18.0 // indirect
+	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect

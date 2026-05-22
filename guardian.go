@@ -157,6 +157,11 @@ type DasGuardian struct {
 
 	nodeIdentity *api.NodeIdentity
 	localchain   ChainData
+
+	// proposerPrefs sniffs SignedProposerPreferences off the Gloas
+	// `proposer_preferences` gossip topic. Nil until Gloas is active on the
+	// network we're connected to.
+	proposerPrefs *proposerPreferencesObserver
 }
 
 type ChainData struct {
@@ -284,6 +289,17 @@ func (g *DasGuardian) init(ctx context.Context) error {
 		return err
 	}
 
+	// Gloas adds a new `proposer_preferences` gossip topic that we can sniff
+	// to learn each proposer's fee_recipient and target_gas_limit.
+	if g.beaconApi.GetStateVersion() == "gloas" {
+		topicName := fmt.Sprintf(GossipProposerPreferences, forkDigest)
+		observer, err := joinProposerPreferences(ctx, g.cfg.Logger, g.pubsub, topicName)
+		if err != nil {
+			return fmt.Errorf("subscribe to gloas proposer_preferences: %w", err)
+		}
+		g.proposerPrefs = observer
+	}
+
 	// register the rpc module
 	reqRespCfg := &ReqRespConfig{
 		Logger:       g.cfg.Logger,
@@ -314,6 +330,9 @@ func (g *DasGuardian) Close() error {
 	}
 	g.cfg.Logger.Info("terminating libp2p host...")
 	g.isHostInit.Store(false)
+	if g.proposerPrefs != nil {
+		g.proposerPrefs.close()
+	}
 	return g.host.Close()
 }
 
@@ -337,7 +356,11 @@ type DasGuardianScanResult struct {
 	RemoteStatusV2   *StatusV2
 	RemoteMetadataV2 *MetaDataV2
 	RemoteMetadataV3 *MetaDataV3
-	EvalResult       DASEvaluationResult
+	// ProposerPreferences holds the SignedProposerPreferences gossip messages
+	// observed via the Gloas `proposer_preferences` topic. Empty pre-Gloas and
+	// when no messages were sniffed during the scan window.
+	ProposerPreferences []*ObservedProposerPreference
+	EvalResult          DASEvaluationResult
 }
 
 func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node, slotSelect SlotSelector) (*DasGuardianScanResult, error) {
@@ -527,6 +550,12 @@ func (g *DasGuardian) scanPeerDAS(ctx context.Context, peerInfo *PeerInfo, slotS
 	})
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
+
+	if g.proposerPrefs != nil {
+		observed := g.proposerPrefs.observationsFrom(peerInfo.AddrInfo.ID)
+		scanResult.ProposerPreferences = observed
+		prettyLogrusFields(g.cfg.Logger, "proposer-preferences...", visualizeProposerPreferences(observed))
+	}
 
 	slots, err := slotSelector(ctx, g.beaconApi, remoteStatus)
 	if err != nil {
