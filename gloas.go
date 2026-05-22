@@ -2,6 +2,8 @@ package dasguardian
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"time"
@@ -9,9 +11,48 @@ import (
 	"github.com/ethpandaops/go-eth2-client/spec/gloas"
 	"github.com/golang/snappy"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	pubsubpb "github.com/libp2p/go-libp2p-pubsub/pb"
 	"github.com/libp2p/go-libp2p/core/peer"
 	log "github.com/sirupsen/logrus"
 )
+
+// MESSAGE_DOMAIN_VALID_SNAPPY / MESSAGE_DOMAIN_INVALID_SNAPPY per the Ethereum
+// gossipsub spec (Altair p2p-interface):
+//
+//	SHA256(MESSAGE_DOMAIN_VALID_SNAPPY || u64le(len(topic)) || topic || snappy_decompressed_data)[:20]
+//	(falling back to MESSAGE_DOMAIN_INVALID_SNAPPY with the raw bytes when
+//	 snappy decompression fails)
+//
+// Without this, go-libp2p-pubsub falls back to a default `from+seqno` message
+// ID — and since we use WithNoAuthor + WithMessageSignaturePolicy(StrictNoSign)
+// both of those are empty, so every gossip message ends up with the *same* ID
+// and only the first one ever clears dedup. That silently breaks any topic we
+// actually want to read from, like `proposer_preferences`.
+var (
+	gossipMsgDomainValidSnappy   = []byte{0x01, 0x00, 0x00, 0x00}
+	gossipMsgDomainInvalidSnappy = []byte{0x00, 0x00, 0x00, 0x00}
+)
+
+func ethGossipMessageIdFn(pmsg *pubsubpb.Message) string {
+	topic := pmsg.GetTopic()
+	topicLen := make([]byte, 8)
+	binary.LittleEndian.PutUint64(topicLen, uint64(len(topic)))
+
+	h := sha256.New()
+	if decompressed, err := snappy.Decode(nil, pmsg.GetData()); err == nil {
+		h.Write(gossipMsgDomainValidSnappy)
+		h.Write(topicLen)
+		h.Write([]byte(topic))
+		h.Write(decompressed)
+	} else {
+		h.Write(gossipMsgDomainInvalidSnappy)
+		h.Write(topicLen)
+		h.Write([]byte(topic))
+		h.Write(pmsg.GetData())
+	}
+	sum := h.Sum(nil)
+	return string(sum[:20])
+}
 
 // ObservedProposerPreference records a SignedProposerPreferences gossip message
 // sniffed off the wire, together with the peer that delivered it to us.

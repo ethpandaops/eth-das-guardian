@@ -145,6 +145,7 @@ func (n *DasGuardianConfig) PubsubOptions() []pubsub.Option {
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
 		pubsub.WithNoAuthor(),
+		pubsub.WithMessageIdFn(ethGossipMessageIdFn),
 		pubsub.WithPeerOutboundQueueSize(600),
 		pubsub.WithMaxMessageSize(10 * 1 << 20),
 		pubsub.WithValidateQueueSize(600),
@@ -300,7 +301,10 @@ func (g *DasGuardian) init(ctx context.Context) error {
 
 	// Gloas adds a new `proposer_preferences` gossip topic that we can sniff
 	// to learn each proposer's fee_recipient and target_gas_limit.
-	if g.beaconApi.GetStateVersion() == "gloas" {
+	// Per gloas/p2p-interface.md, nodes SHOULD subscribe at least one epoch
+	// before the fork activates — so subscribe both once Gloas is active and
+	// during the activation epoch when still on Fulu.
+	if g.shouldSniffProposerPreferences() {
 		topicName := fmt.Sprintf(GossipProposerPreferences, forkDigest)
 		observer, err := joinProposerPreferences(ctx, g.cfg.Logger, g.pubsub, topicName)
 		if err != nil {
@@ -1081,6 +1085,31 @@ func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 		CustodyGroupCount: uint64(4),
 	}
 	return metadataV2, metadataV3
+}
+
+// shouldSniffProposerPreferences reports whether the proposer_preferences
+// gossip topic is relevant right now: either the chain is already on Gloas, or
+// it's on Fulu and within one epoch of the Gloas fork activation (per
+// gloas/p2p-interface.md, nodes SHOULD subscribe at least one epoch before the
+// fork activates).
+func (g *DasGuardian) shouldSniffProposerPreferences() bool {
+	version := g.beaconApi.GetStateVersion()
+	if version == "gloas" {
+		return true
+	}
+	if version != "fulu" {
+		return false
+	}
+	gloasEpoch := g.beaconApi.GetGloasForkEpoch()
+	if gloasEpoch == 0 || gloasEpoch == ^uint64(0)>>1 {
+		return false
+	}
+	head := g.beaconApi.GetLatestBlockHeader()
+	if head == nil {
+		return false
+	}
+	currentEpoch := uint64(head.Slot) / SLOTS_PER_EPOCH
+	return gloasEpoch > 0 && gloasEpoch-currentEpoch <= 1
 }
 
 // normalizeGloasSidecars adapts Gloas-format column sidecars into the
