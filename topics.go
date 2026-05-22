@@ -14,11 +14,3 @@ func getMandatoryTopics(forkDigest []byte) []string {
 		fmt.Sprintf(GossipBeaconBlock, forkDigest),
 	}
 }
-
-// getGloasTopics returns the additional gossip topics that are only valid once
-// the Gloas (EIP-7732) fork is active.
-func getGloasTopics(forkDigest []byte) []string {
-	return []string{
-		fmt.Sprintf(GossipProposerPreferences, forkDigest),
-	}
-}
