@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/ethereum/go-ethereum v1.15.11
-	github.com/ethpandaops/go-eth2-client v0.1.5
+	github.com/ethpandaops/go-eth2-client v0.1.6-0.20260629130636-6d2ee1978c4e
 	github.com/golang/snappy v0.0.5-0.20231225225746-43d5d4cd4e0e
 	github.com/holiman/uint256 v1.3.2
 	github.com/libp2p/go-libp2p v0.41.1
