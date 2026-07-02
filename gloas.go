@@ -153,7 +153,7 @@ func (o *proposerPreferencesObserver) readLoop(ctx context.Context) {
 				"validator_index": uint64(signed.Message.ValidatorIndex),
 				"proposal_slot":   uint64(signed.Message.ProposalSlot),
 				"fee_recipient":   fmt.Sprintf("0x%x", signed.Message.FeeRecipient),
-				"gas_limit":       signed.Message.GasLimit,
+				"gas_limit":       signed.Message.TargetGasLimit,
 				"received_from":   msg.ReceivedFrom.String(),
 			}).Info("observed SignedProposerPreferences")
 		}
@@ -203,7 +203,7 @@ func visualizeProposerPreferences(observations []*ObservedProposerPreference) ma
 			"validator_index": uint64(prefs.ValidatorIndex),
 			"proposal_slot":   uint64(prefs.ProposalSlot),
 			"fee_recipient":   fmt.Sprintf("0x%x", prefs.FeeRecipient),
-			"gas_limit":       prefs.GasLimit,
+			"gas_limit":       prefs.TargetGasLimit,
 			"dependent_root":  fmt.Sprintf("0x%x", prefs.DependentRoot),
 			"received_at":     obs.ReceivedAt.Format(time.RFC3339Nano),
 		})

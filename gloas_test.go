@@ -62,7 +62,7 @@ func TestProposerPreferencesObserver_EndToEnd(t *testing.T) {
 			ProposalSlot:   phase0.Slot(123_456),
 			ValidatorIndex: phase0.ValidatorIndex(42),
 			FeeRecipient:   bellatrix.ExecutionAddress{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14},
-			GasLimit:       36_000_000,
+			TargetGasLimit: 36_000_000,
 		},
 		Signature: phase0.BLSSignature{},
 	}
@@ -91,7 +91,7 @@ func TestProposerPreferencesObserver_EndToEnd(t *testing.T) {
 	assert.Equal(t, want.Message.ProposalSlot, got.Message.Message.ProposalSlot)
 	assert.Equal(t, want.Message.ValidatorIndex, got.Message.Message.ValidatorIndex)
 	assert.Equal(t, want.Message.FeeRecipient, got.Message.Message.FeeRecipient)
-	assert.Equal(t, want.Message.GasLimit, got.Message.Message.GasLimit)
+	assert.Equal(t, want.Message.TargetGasLimit, got.Message.Message.TargetGasLimit)
 	assert.Equal(t, publisher.ID(), got.From)
 
 	// observationsFrom should bucket the message under the publisher peer ID.
