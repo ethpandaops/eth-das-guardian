@@ -15,7 +15,7 @@ var BeaconStateBase = "eth/v2/debug/beacon/states/head"
 // version-agnostic across electra/fulu/gloas — JSON unmarshal silently
 // ignores unknown fields, so newer forks' additions don't break parsing.
 type BeaconStateData struct {
-	Slot                phase0.Slot               `json:"slot,string"`
+	Slot                phase0.Slot               `json:"slot"`
 	LatestBlockHeader   *phase0.BeaconBlockHeader `json:"latest_block_header"`
 	FinalizedCheckpoint *phase0.Checkpoint        `json:"finalized_checkpoint"`
 	Validators          []json.RawMessage         `json:"validators"`
