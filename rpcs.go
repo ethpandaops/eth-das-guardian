@@ -371,6 +371,102 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	return opDuration, dataColumns, nil
 }
 
+// DataColumnByRangeV1Gloas is the Gloas (EIP-7732) variant of
+// DataColumnByRangeV1: identical wire protocol, but the chunk payload is the
+// post-Gloas DataColumnSidecar layout (no kzg_commitments, no signed_block_header,
+// no kzg_commitments_inclusion_proof; with slot and beacon_block_root instead).
+func (r *ReqResp) DataColumnByRangeV1Gloas(ctx context.Context, pid peer.ID, slot uint64, columnIdxs []uint64) (time.Duration, []*DataColumnSidecarGloasV1, error) {
+	dataColumns := make([]*DataColumnSidecarGloasV1, 0)
+	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
+		return time.Duration(0), dataColumns, err
+	}
+	chunks := uint64(1 * len(columnIdxs) * PeerDAScolumns)
+
+	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRangeTopicV1))
+	if err != nil {
+		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRangeTopicV1, pid, err)
+	}
+
+	req := &DataColumnSidecarsByRangeRequestV1{
+		StartSlot: slot,
+		Count:     uint64(1),
+		Columns:   columnIdxs,
+	}
+	if err := r.writeRequest(stream, req); err != nil {
+		stream.Reset()
+		return time.Duration(0), dataColumns, fmt.Errorf("write data_columns_by_range request (gloas): %w", err)
+	}
+
+	tStart := time.Now()
+	for i := uint64(0); ; i++ {
+		dataCol := &DataColumnSidecarGloasV1{}
+		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigestFn(slot))
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			stream.Reset()
+			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar (gloas)")
+		}
+		if i >= chunks {
+			stream.Reset()
+			return time.Duration(0), dataColumns, errors.New("invalid - response contains more data column sidecars than requested (gloas)")
+		}
+		dataColumns = append(dataColumns, dataCol)
+	}
+	opDuration := time.Since(tStart)
+
+	_ = stream.Close()
+	return opDuration, dataColumns, nil
+}
+
+// DataColumnByRootV1Gloas is the Gloas variant of DataColumnByRootV1.
+func (r *ReqResp) DataColumnByRootV1Gloas(ctx context.Context, pid peer.ID, blockRoot [32]byte, columnIdxs []uint64, bslot uint64) (time.Duration, []*DataColumnSidecarGloasV1, error) {
+	dataColumns := make([]*DataColumnSidecarGloasV1, 0)
+	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
+		return time.Duration(0), dataColumns, err
+	}
+	chunks := uint64(1 * len(columnIdxs))
+
+	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRootTopicV1))
+	if err != nil {
+		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRootTopicV1, pid, err)
+	}
+
+	reqBlocks := []DataColumnByRootIdentifier{
+		{
+			BlockRoot: blockRoot,
+			Columns:   columnIdxs,
+		},
+	}
+	if err := r.writeRequest(stream, DataColumnSidecarsByRootRequestV1(reqBlocks)); err != nil {
+		stream.Reset()
+		return time.Duration(0), dataColumns, fmt.Errorf("write data_columns_by_root request (gloas): %w", err)
+	}
+
+	tStart := time.Now()
+	for i := uint64(0); ; i++ {
+		dataCol := &DataColumnSidecarGloasV1{}
+		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigestFn(bslot))
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			stream.Reset()
+			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar (gloas)")
+		}
+		if i >= chunks {
+			stream.Reset()
+			return time.Duration(0), dataColumns, errors.New("invalid - response contains more data column sidecars than requested (gloas)")
+		}
+		dataColumns = append(dataColumns, dataCol)
+	}
+	opDuration := time.Since(tStart)
+
+	_ = stream.Close()
+	return opDuration, dataColumns, nil
+}
+
 // https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyroot-v1
 func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot [32]byte, columnIdxs []uint64, bslot uint64) (time.Duration, []*DataColumnSidecarV1, error) {
 	dataColumns := make([]*DataColumnSidecarV1, 0)

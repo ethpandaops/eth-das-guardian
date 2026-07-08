@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/ethpandaops/eth-das-guardian/api"
+	"github.com/ethpandaops/go-eth2-client/spec"
+	"github.com/ethpandaops/go-eth2-client/spec/phase0"
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/pkg/errors"
@@ -86,6 +88,13 @@ type DasGuardianConfig struct {
 	BeaconAPIcustomClClient string
 	WaitForFulu             bool
 	InitTimeout             time.Duration
+	// ProposerPreferencesWaitDuration, if > 0, keeps the Gloas
+	// `proposer_preferences` gossip subscription open for this long after the
+	// RPC exchange completes, so the gossip mesh has time to deliver
+	// SignedProposerPreferences messages from the scanned peer. Zero (default)
+	// means no extra wait — the scan returns immediately and the observation
+	// list is whatever happened to arrive during the RPC window.
+	ProposerPreferencesWaitDuration time.Duration
 }
 
 func (c *DasGuardianConfig) NewPrivateKey() (*crypto.Secp256k1PrivateKey, error) {
@@ -136,6 +145,7 @@ func (n *DasGuardianConfig) PubsubOptions() []pubsub.Option {
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
 		pubsub.WithNoAuthor(),
+		pubsub.WithMessageIdFn(ethGossipMessageIdFn),
 		pubsub.WithPeerOutboundQueueSize(600),
 		pubsub.WithMaxMessageSize(10 * 1 << 20),
 		pubsub.WithValidateQueueSize(600),
@@ -157,6 +167,11 @@ type DasGuardian struct {
 
 	nodeIdentity *api.NodeIdentity
 	localchain   ChainData
+
+	// proposerPrefs sniffs SignedProposerPreferences off the Gloas
+	// `proposer_preferences` gossip topic. Nil until Gloas is active on the
+	// network we're connected to.
+	proposerPrefs *proposerPreferencesObserver
 }
 
 type ChainData struct {
@@ -284,6 +299,20 @@ func (g *DasGuardian) init(ctx context.Context) error {
 		return err
 	}
 
+	// Gloas adds a new `proposer_preferences` gossip topic that we can sniff
+	// to learn each proposer's fee_recipient and target_gas_limit.
+	// Per gloas/p2p-interface.md, nodes SHOULD subscribe at least one epoch
+	// before the fork activates — so subscribe both once Gloas is active and
+	// during the activation epoch when still on Fulu.
+	if g.shouldSniffProposerPreferences() {
+		topicName := fmt.Sprintf(GossipProposerPreferences, forkDigest)
+		observer, err := joinProposerPreferences(ctx, g.cfg.Logger, g.pubsub, topicName)
+		if err != nil {
+			return fmt.Errorf("subscribe to gloas proposer_preferences: %w", err)
+		}
+		g.proposerPrefs = observer
+	}
+
 	// register the rpc module
 	reqRespCfg := &ReqRespConfig{
 		Logger:       g.cfg.Logger,
@@ -314,6 +343,9 @@ func (g *DasGuardian) Close() error {
 	}
 	g.cfg.Logger.Info("terminating libp2p host...")
 	g.isHostInit.Store(false)
+	if g.proposerPrefs != nil {
+		g.proposerPrefs.close()
+	}
 	return g.host.Close()
 }
 
@@ -337,7 +369,11 @@ type DasGuardianScanResult struct {
 	RemoteStatusV2   *StatusV2
 	RemoteMetadataV2 *MetaDataV2
 	RemoteMetadataV3 *MetaDataV3
-	EvalResult       DASEvaluationResult
+	// ProposerPreferences holds the SignedProposerPreferences gossip messages
+	// observed via the Gloas `proposer_preferences` topic. Empty pre-Gloas and
+	// when no messages were sniffed during the scan window.
+	ProposerPreferences []*ObservedProposerPreference
+	EvalResult          DASEvaluationResult
 }
 
 func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node, slotSelect SlotSelector) (*DasGuardianScanResult, error) {
@@ -527,6 +563,52 @@ func (g *DasGuardian) scanPeerDAS(ctx context.Context, peerInfo *PeerInfo, slotS
 	})
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
+
+	if g.proposerPrefs != nil {
+		logTopicMesh := func(stage string) {
+			peers := g.proposerPrefs.topicPeers()
+			inMesh := false
+			for _, p := range peers {
+				if p == peerInfo.AddrInfo.ID {
+					inMesh = true
+					break
+				}
+			}
+			g.cfg.Logger.WithFields(log.Fields{
+				"stage":            stage,
+				"topic_peers":      len(peers),
+				"scanned_in_topic": inMesh,
+			}).Info("proposer_preferences gossip mesh")
+		}
+
+		logTopicMesh("pre-wait")
+		if wait := g.cfg.ProposerPreferencesWaitDuration; wait > 0 {
+			g.cfg.Logger.WithField("duration", wait).Info("waiting for proposer_preferences gossip...")
+			deadline := time.Now().Add(wait)
+			ticker := time.NewTicker(5 * time.Second)
+		waitLoop:
+			for {
+				remaining := time.Until(deadline)
+				if remaining <= 0 {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					break waitLoop
+				case <-ticker.C:
+					logTopicMesh("waiting")
+				case <-time.After(remaining):
+					break waitLoop
+				}
+			}
+			ticker.Stop()
+		}
+		logTopicMesh("post-wait")
+
+		observed := g.proposerPrefs.observationsFrom(peerInfo.AddrInfo.ID)
+		scanResult.ProposerPreferences = observed
+		prettyLogrusFields(g.cfg.Logger, "proposer-preferences...", visualizeProposerPreferences(observed))
+	}
 
 	slots, err := slotSelector(ctx, g.beaconApi, remoteStatus)
 	if err != nil {
@@ -1005,6 +1087,63 @@ func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 	return metadataV2, metadataV3
 }
 
+// shouldSniffProposerPreferences reports whether the proposer_preferences
+// gossip topic is relevant right now: either the chain is already on Gloas, or
+// it's on Fulu and within one epoch of the Gloas fork activation (per
+// gloas/p2p-interface.md, nodes SHOULD subscribe at least one epoch before the
+// fork activates).
+func (g *DasGuardian) shouldSniffProposerPreferences() bool {
+	version := g.beaconApi.GetStateVersion()
+	if version == "gloas" {
+		return true
+	}
+	if version != "fulu" {
+		return false
+	}
+	gloasEpoch := g.beaconApi.GetGloasForkEpoch()
+	if gloasEpoch == 0 || gloasEpoch == ^uint64(0)>>1 {
+		return false
+	}
+	head := g.beaconApi.GetLatestBlockHeader()
+	if head == nil {
+		return false
+	}
+	currentEpoch := uint64(head.Slot) / SLOTS_PER_EPOCH
+	return gloasEpoch > 0 && gloasEpoch-currentEpoch <= 1
+}
+
+// normalizeGloasSidecars adapts Gloas-format column sidecars into the
+// Fulu-shaped DataColumnSidecarV1 that the rest of the pipeline (eval, logs)
+// already understands. The Gloas sidecar no longer carries per-cell KZG
+// commitments or a SignedBlockHeader, so we leave KzgCommitments nil (eval
+// falls back to the block's commitments) and synthesise a minimal header
+// carrying the sidecar's Slot so existing slot-mismatch checks still work.
+func normalizeGloasSidecars(in []*DataColumnSidecarGloasV1) []*DataColumnSidecarV1 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*DataColumnSidecarV1, 0, len(in))
+	for _, gl := range in {
+		if gl == nil {
+			continue
+		}
+		out = append(out, &DataColumnSidecarV1{
+			Index:     gl.Index,
+			Column:    gl.Column,
+			KzgProofs: gl.KzgProofs,
+			SignedBlockHeader: &phase0.SignedBeaconBlockHeader{
+				Message: &phase0.BeaconBlockHeader{
+					Slot:       phase0.Slot(gl.Slot),
+					ParentRoot: phase0.Root{},
+					StateRoot:  phase0.Root{},
+					BodyRoot:   phase0.Root(gl.BeaconBlockRoot),
+				},
+			},
+		})
+	}
+	return out
+}
+
 func (g *DasGuardian) getDataColumnForSlotAndSubnet(
 	ctx context.Context,
 	pid peer.ID,
@@ -1023,9 +1162,21 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(
 	startT := time.Now()
 	// make the request for each slots
 	for s, completeSlot := range sampSlot {
-		// make the request per each column
+		isGloas := completeSlot.BeaconBlock != nil && completeSlot.BeaconBlock.Version == spec.DataVersionGloas
+
 		// Range Request
-		rangeDuration, rangeCols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, completeSlot.Slot, columnIdxs)
+		var (
+			rangeDuration time.Duration
+			rangeCols     []*DataColumnSidecarV1
+			err           error
+		)
+		if isGloas {
+			var gloasCols []*DataColumnSidecarGloasV1
+			rangeDuration, gloasCols, err = g.rpcServ.DataColumnByRangeV1Gloas(ctx, pid, completeSlot.Slot, columnIdxs)
+			rangeCols = normalizeGloasSidecars(gloasCols)
+		} else {
+			rangeDuration, rangeCols, err = g.rpcServ.DataColumnByRangeV1(ctx, pid, completeSlot.Slot, columnIdxs)
+		}
 		if err != nil {
 			g.cfg.Logger.Error(err)
 			return rangeDataColumns, rootDataColumns, err
@@ -1038,13 +1189,23 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(
 			g.cfg.Logger.Error(err)
 			return rangeDataColumns, rootDataColumns, err
 		}
-		rootDuration, rootCols, err := g.rpcServ.DataColumnByRootV1(
-			ctx,
-			pid,
-			blockRoot,
-			columnIdxs,
-			completeSlot.Slot,
+		var (
+			rootDuration time.Duration
+			rootCols     []*DataColumnSidecarV1
 		)
+		if isGloas {
+			var gloasCols []*DataColumnSidecarGloasV1
+			rootDuration, gloasCols, err = g.rpcServ.DataColumnByRootV1Gloas(ctx, pid, blockRoot, columnIdxs, completeSlot.Slot)
+			rootCols = normalizeGloasSidecars(gloasCols)
+		} else {
+			rootDuration, rootCols, err = g.rpcServ.DataColumnByRootV1(
+				ctx,
+				pid,
+				blockRoot,
+				columnIdxs,
+				completeSlot.Slot,
+			)
+		}
 		if err != nil {
 			g.cfg.Logger.Error(err)
 			return rangeDataColumns, rootDataColumns, err
