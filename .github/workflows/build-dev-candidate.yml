@@ -1,0 +1,78 @@
+name: Build DEV image candidate
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, reopened, synchronize, labeled]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build_candidate:
+    name: Build ${{ matrix.platform }} candidate
+    if: contains(github.event.pull_request.labels.*.name, 'build-docker-image')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: amd64
+            docker_platform: linux/amd64
+          - platform: arm64
+            docker_platform: linux/arm64
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up QEMU
+        if: matrix.platform == 'arm64'
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Build candidate archive
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          DOCKER_PLATFORM: ${{ matrix.docker_platform }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected a full PR head SHA." >&2
+            exit 1
+          fi
+
+          archive="$RUNNER_TEMP/dev-image-${PLATFORM}.tar"
+          docker buildx build . \
+            --file Dockerfile \
+            --platform "$DOCKER_PLATFORM" \
+            --tag "eth-das-guardian-dev:${HEAD_SHA}-${PLATFORM}" \
+            --output "type=docker,dest=${archive}"
+
+          cd "$RUNNER_TEMP"
+          sha256sum "dev-image-${PLATFORM}.tar" > "dev-image-${PLATFORM}.tar.sha256"
+          printf '%s\n' "$HEAD_SHA" > "dev-image-${PLATFORM}.head-sha"
+          printf '%s\n' "$PR_NUMBER" > "dev-image-${PLATFORM}.pr-number"
+
+      - name: Upload immutable candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dev-image-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/dev-image-${{ matrix.platform }}.tar
+            ${{ runner.temp }}/dev-image-${{ matrix.platform }}.tar.sha256
+            ${{ runner.temp }}/dev-image-${{ matrix.platform }}.head-sha
+            ${{ runner.temp }}/dev-image-${{ matrix.platform }}.pr-number
+          if-no-files-found: error
+          retention-days: 7

@@ -1,77 +1,223 @@
-
-name: Build DEV version
+name: Publish reviewed DEV image
 
 on:
-  pull_request_target:
-    types: [synchronize]
-  workflow_dispatch:
-    inputs:
-      docker_tag:
-        description: "Docker Tag Prefix (leave blank for no docker build)"
-        required: false
+  issue_comment:
+    types: [created]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: publish-dev
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
-  prinfo:
-    name: "Get PR info"
+  authorize:
+    name: Bind approval to candidate
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/publish-dev ')
     runs-on: ubuntu-latest
     outputs:
-      run_builds: ${{ steps.loadinfo.outputs.run_builds }}
-      commit_ref: ${{ steps.loadinfo.outputs.commit_ref }}
-      build_docker: ${{ steps.loadinfo.outputs.build_docker }}
-      docker_tag: ${{ steps.loadinfo.outputs.docker_tag }}
+      candidate_run_id: ${{ steps.authorize.outputs.candidate_run_id }}
+      docker_tag: ${{ steps.authorize.outputs.docker_tag }}
+      head_sha: ${{ steps.authorize.outputs.head_sha }}
     steps:
-    - name: "Load PR info"
-      id: loadinfo
-      run: |
-        has_docker_image_label="${{ contains(github.event.pull_request.labels.*.name, 'build-docker-image') }}"
-        run_builds="$has_docker_image_label"
-        echo "docker image label: $has_docker_image_label"
+      - name: Verify reviewed SHA and candidate run
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
 
-        branch_name="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
-        branch_name="$(echo "$branch_name" | sed 's/\//-/g')"
-        echo "branch name: $branch_name"
+          if [[ ! "$COMMENT_BODY" =~ ^/publish-dev[[:space:]]+([0-9a-f]{40})[[:space:]]+([a-z0-9][a-z0-9_.-]{0,79})[[:space:]]*$ ]]; then
+            echo "Expected: /publish-dev <40-character-head-sha> <docker-tag>" >&2
+            exit 1
+          fi
+          REVIEWED_SHA="${BASH_REMATCH[1]}"
+          DOCKER_TAG="${BASH_REMATCH[2]}"
 
-        commit_repo="$GITHUB_REPOSITORY"
-        commit_ref="${{ github.event.pull_request.head.sha }}"
-        if [[ -z "$commit_ref" ]]; then
-          commit_ref="${{ github.sha }}"
-        fi
-        
-        echo "repository: $commit_repo"
-        echo "commit: $commit_ref"
-        
-        manual_tag="${{ inputs.docker_tag }}"
-        if [[ ! -z "$manual_tag" ]]; then
-          has_docker_image_label="true"
-          branch_name="$manual_tag"
-          run_builds="true"
-        fi
+          if [[ "$DOCKER_TAG" == "main" || "$DOCKER_TAG" == "main-latest" ||
+                "$DOCKER_TAG" == "master" || "$DOCKER_TAG" == "latest" ||
+                "$DOCKER_TAG" =~ ^v[0-9] ]]; then
+            echo "docker_tag may not overlap main or release image tags." >&2
+            exit 1
+          fi
 
-        if [[ "$branch_name" == "master" ]] || [[ "$branch_name" =~ ^v[0-9] ]]; then
-          echo "Invalid branch name! Skipping builds"
-          run_builds="false"
-        fi
+          commenter_permission="$(
+            gh api "repos/${GITHUB_REPOSITORY}/collaborators/${COMMENTER}/permission" \
+              --jq .permission
+          )"
+          if [[ "$commenter_permission" != "admin" &&
+                "$commenter_permission" != "maintain" &&
+                "$commenter_permission" != "write" ]]; then
+            echo "${COMMENTER} does not have permission to publish DEV images." >&2
+            exit 1
+          fi
 
-        echo "run_builds=$run_builds" >> $GITHUB_OUTPUT
-        echo "commit_ref=$commit_ref" >> $GITHUB_OUTPUT
-        echo "build_docker=$has_docker_image_label" >> $GITHUB_OUTPUT
-        echo "docker_tag=$branch_name" >> $GITHUB_OUTPUT
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          if [[ "$(jq -r .state <<<"$pr")" != "open" ]]; then
+            echo "Pull request ${PR_NUMBER} is not open." >&2
+            exit 1
+          fi
 
-  build_binaries:
-    name: "Build DasGuardian"
-    needs: [prinfo]
-    if: ${{ needs.prinfo.outputs.run_builds == 'true' }}
-    uses: ./.github/workflows/_shared-build.yaml
-    with:
-      ref: ${{ needs.prinfo.outputs.commit_ref }}
-      docker: ${{ needs.prinfo.outputs.build_docker == 'true' }}
-      docker_repository: "ethpandaops/eth-das-guardian"
-      docker_tag_prefix: ${{needs.prinfo.outputs.docker_tag}}
-      additional_tags: "['${{needs.prinfo.outputs.docker_tag}}','${{needs.prinfo.outputs.docker_tag}}-latest']"
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          current_sha="$(jq -r .head.sha <<<"$pr")"
+          if [[ "$current_sha" != "$REVIEWED_SHA" ]]; then
+            echo "The reviewed SHA is stale: PR ${PR_NUMBER} now points to ${current_sha}." >&2
+            exit 1
+          fi
+
+          approved_reviewers="$(
+            gh api --paginate --slurp \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+              | jq -r --arg sha "$REVIEWED_SHA" \
+                  '[.[][] | select(.commit_id == $sha)]
+                   | sort_by(.submitted_at)
+                   | reduce .[] as $review
+                       ({}; .[$review.user.login] = $review.state)
+                   | to_entries[]
+                   | select(.value == "APPROVED")
+                   | .key'
+          )"
+          reviewed_by_maintainer="false"
+          while IFS= read -r reviewer; do
+            [[ -n "$reviewer" ]] || continue
+            permission="$(
+              gh api "repos/${GITHUB_REPOSITORY}/collaborators/${reviewer}/permission" \
+                --jq .permission
+            )"
+            if [[ "$permission" == "admin" || "$permission" == "maintain" ||
+                  "$permission" == "write" ]]; then
+              reviewed_by_maintainer="true"
+              break
+            fi
+          done <<< "$approved_reviewers"
+          if [[ "$reviewed_by_maintainer" != "true" ]]; then
+            echo "SHA ${REVIEWED_SHA} does not have a current approving maintainer review." >&2
+            exit 1
+          fi
+
+          candidate_run_id="$(
+            gh api -X GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/build-dev-candidate.yml/runs" \
+              -f event=pull_request \
+              -f status=success \
+              -f per_page=100 \
+              | jq -r --arg sha "$REVIEWED_SHA" \
+                  '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.run_number) | last | .id // empty'
+          )"
+          if [[ -z "$candidate_run_id" ]]; then
+            echo "No successful DEV image candidate run exists for ${REVIEWED_SHA}." >&2
+            exit 1
+          fi
+
+          artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${candidate_run_id}/artifacts")"
+          for artifact_name in dev-image-amd64 dev-image-arm64; do
+            count="$(jq --arg name "$artifact_name" \
+              '[.artifacts[] | select(.name == $name and .expired == false)] | length' \
+              <<<"$artifacts")"
+            if [[ "$count" != "1" ]]; then
+              echo "Candidate run ${candidate_run_id} must contain one unexpired ${artifact_name} artifact." >&2
+              exit 1
+            fi
+          done
+
+          {
+            echo "candidate_run_id=$candidate_run_id"
+            echo "docker_tag=$DOCKER_TAG"
+            echo "head_sha=$REVIEWED_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish exact candidate
+    needs: authorize
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_REPOSITORY: ethpandaops/eth-das-guardian
+      DOCKER_TAG: ${{ needs.authorize.outputs.docker_tag }}
+      REVIEWED_SHA: ${{ needs.authorize.outputs.head_sha }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - name: Download amd64 candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dev-image-amd64
+          path: ${{ runner.temp }}/candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.authorize.outputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download arm64 candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dev-image-arm64
+          path: ${{ runner.temp }}/candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.authorize.outputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify candidate provenance and digests
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate"
+
+          for platform in amd64 arm64; do
+            if [[ "$(cat "dev-image-${platform}.head-sha")" != "$REVIEWED_SHA" ]]; then
+              echo "${platform} candidate was not built from ${REVIEWED_SHA}." >&2
+              exit 1
+            fi
+            if [[ "$(cat "dev-image-${platform}.pr-number")" != "$PR_NUMBER" ]]; then
+              echo "${platform} candidate belongs to a different pull request." >&2
+              exit 1
+            fi
+            sha256sum --check "dev-image-${platform}.tar.sha256"
+          done
+
+      - name: Load candidate images without executing them
+        run: |
+          set -euo pipefail
+          docker load --input "$RUNNER_TEMP/candidate/dev-image-amd64.tar"
+          docker load --input "$RUNNER_TEMP/candidate/dev-image-arm64.tar"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish SHA-bound and requested tags
+        run: |
+          set -euo pipefail
+
+          for platform in amd64 arm64; do
+            source_image="eth-das-guardian-dev:${REVIEWED_SHA}-${platform}"
+            immutable_image="${DOCKER_REPOSITORY}:${DOCKER_TAG}-${REVIEWED_SHA}-${platform}"
+
+            docker tag "$source_image" "$immutable_image"
+            docker push "$immutable_image"
+
+            for requested_tag in "${DOCKER_TAG}-${platform}" "${DOCKER_TAG}-latest-${platform}"; do
+              docker tag "$source_image" "${DOCKER_REPOSITORY}:${requested_tag}"
+              docker push "${DOCKER_REPOSITORY}:${requested_tag}"
+            done
+          done
+
+          immutable_manifest="${DOCKER_REPOSITORY}:${DOCKER_TAG}-${REVIEWED_SHA}"
+          docker manifest create "$immutable_manifest" \
+            --amend "${immutable_manifest}-amd64" \
+            --amend "${immutable_manifest}-arm64"
+          docker manifest push "$immutable_manifest"
+
+          for requested_tag in "$DOCKER_TAG" "${DOCKER_TAG}-latest"; do
+            requested_manifest="${DOCKER_REPOSITORY}:${requested_tag}"
+            docker manifest create "$requested_manifest" \
+              --amend "${immutable_manifest}-amd64" \
+              --amend "${immutable_manifest}-arm64"
+            docker manifest push "$requested_manifest"
+          done
+
+          echo "Published reviewed candidate ${REVIEWED_SHA} from PR ${PR_NUMBER}." >> "$GITHUB_STEP_SUMMARY"

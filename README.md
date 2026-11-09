@@ -121,3 +121,13 @@ Originally created by [@cortze](https://github.com/cortze) at [@probe-lab](https
 
 ## Contributing
 Due to the debugging and research nature of the project, feedback and feature suggestions are very welcome. Feel free to open an issue or submit a pull request.
+
+### Publishing DEV images
+
+Maintainers can publish a DEV image for a reviewed pull request revision:
+
+1. Add the `build-docker-image` label to build candidate archives for the current pull request head.
+2. Approve that exact revision after review.
+3. Comment `/publish-dev <full-head-sha> <docker-tag>` on the pull request.
+
+The publication workflow requires the supplied SHA to remain the pull request's current head, have an approving maintainer review for that SHA, and have a successful candidate build with matching revision metadata and checksums. It publishes a SHA-qualified `<docker-tag>-<full-head-sha>` image plus the requested `<docker-tag>` and `<docker-tag>-latest` aliases.
