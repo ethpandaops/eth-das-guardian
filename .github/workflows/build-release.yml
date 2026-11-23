@@ -14,17 +14,21 @@ permissions:
 jobs:
   build_binaries:
     name: "Build DasGuardian"
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/_shared-build.yaml
     with:
       ref: ${{ github.sha }}
       release: "v${{ inputs.version }}"
       docker: true
-      docker_repository: "ethpandaops/eth-das-guardian"
+      docker_repository: "ghcr.io/ethpandaops/eth-das-guardian"
       docker_tag_prefix: "v${{ inputs.version }}"
       additional_tags: "['v${{ inputs.version }}','latest']"
     secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      IMAGE_MIRROR_URL: ${{ secrets.IMAGE_MIRROR_URL }}
 
   create_release:
     name: Create Release
